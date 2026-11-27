@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
-  <pyqgis_plugin name="Edge Aligner" version="0.7.1">
+  <pyqgis_plugin name="Edge Aligner" version="0.7.2">
     <description>Interactive editing tool: Edge Aligner moves an edge onto a reference boundary.</description>
-    <about>One click on an edge aligns the stretch of that edge lying within a tolerance of the nearest reference boundary (polygon or line layers, same or other layer). In "selected features" mode, a click on a reference boundary aligns all selected features to it. Features in layers in edit mode that share the moved stretch are moved too, so shared boundaries stay identical. All settings are in one compact toolbar (mode, reference layers, tolerance, options). Before writing, every change is checked for invalid geometries, fold-backs, and new gaps or overlaps within a layer. Uses only QGIS core functionality; every change is one undoable edit command per layer.</about>
-    <version>0.7.1</version>
+    <about>One click on an edge aligns the stretch of that edge lying within a tolerance of the nearest reference boundary (polygon or line layers, same or other layer). In "selected features" mode, a click on a reference boundary aligns all selected features to it. Features in layers in edit mode that share the moved stretch are moved too, so shared boundaries stay identical. All settings (mode, reference layers, tolerance, options) are in a drop-down menu on the tool button. Before writing, every change is checked for invalid geometries, fold-backs, and new gaps or overlaps within a layer. Uses only QGIS core functionality; every change is one undoable edit command per layer.</about>
+    <version>0.7.2</version>
     <qgis_minimum_version>3.44</qgis_minimum_version>
     <qgis_maximum_version>4.99</qgis_maximum_version>
     <homepage>https://github.com/rasa995/align_edge_tool</homepage>
-    <file_name>edge_aligner_v0.7.1.zip</file_name>
+    <file_name>edge_aligner_v0.7.2.zip</file_name>
     <icon>https://raw.githubusercontent.com/rasa995/align_edge_tool/main/icon.svg</icon>
     <author_name>Rasa.H</author_name>
-    <download_url>https://github.com/rasa995/align_edge_tool/releases/download/v0.7.1/edge_aligner_v0.7.1.zip</download_url>
+    <download_url>https://github.com/rasa995/align_edge_tool/releases/download/v0.7.2/edge_aligner_v0.7.2.zip</download_url>
     <uploaded_by>rasa995</uploaded_by>
     <create_date>2026-11-27</create_date>
     <update_date>2026-11-27</update_date>
@@ -19,6 +19,6 @@
     <tracker>https://github.com/rasa995/align_edge_tool/issues</tracker>
     <repository>https://github.com/rasa995/align_edge_tool</repository>
     <tags>editing,topology,align,snap,edge,boundary</tags>
-    <changelog>0.7.1: the edge can follow the boundaries of several reference features (through junctions); alignments that would fold back onto their own boundary or create new gaps or overlaps in a layer are cancelled; no near-duplicate vertices.</changelog>
+    <changelog>0.7.2: all settings moved into a drop-down menu on the Edge Aligner tool button (like the Vertex Tool button) instead of a full row of toolbar widgets. 0.7.1: the edge can follow the boundaries of several reference features (through junctions); alignments that would fold back onto their own boundary or create new gaps or overlaps in a layer are cancelled; no near-duplicate vertices.</changelog>
   </pyqgis_plugin>
 </plugins>
