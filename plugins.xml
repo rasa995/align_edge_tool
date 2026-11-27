@@ -7,10 +7,10 @@
     <qgis_minimum_version>3.44</qgis_minimum_version>
     <qgis_maximum_version>4.99</qgis_maximum_version>
     <homepage>https://github.com/rasa995/align_edge_tool</homepage>
-    <file_name>edge_aligner_v0.8.0.zip</file_name>
+    <file_name>edge_aligner.0.8.0.zip</file_name>
     <icon>https://raw.githubusercontent.com/rasa995/align_edge_tool/main/icon.svg</icon>
     <author_name>Rasa.H</author_name>
-    <download_url>https://github.com/rasa995/align_edge_tool/releases/download/v0.8.0/edge_aligner_v0.8.0.zip</download_url>
+    <download_url>https://github.com/rasa995/align_edge_tool/releases/download/v0.8.0/edge_aligner.0.8.0.zip</download_url>
     <uploaded_by>rasa995</uploaded_by>
     <create_date>2026-11-27</create_date>
     <update_date>2026-11-27</update_date>

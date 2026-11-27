@@ -4,7 +4,11 @@ Run from the plugin folder (where metadata.txt lives):
     python build_release.py
 
 Output:
-    ../dist/align_edge_v<version>.zip   (upload this to the GitHub Release v<version>)
+    ../dist/edge_aligner.<version>.zip  (upload this to the GitHub Release v<version>)
+
+The ZIP name must be "<plugin folder>.<version>.zip": QGIS takes the plugin id
+from the file name up to the first dot, and it must match the installed folder
+(edge_aligner), or QGIS never offers the update.
     plugins.xml                         (commit and push this file)
 """
 import configparser
@@ -30,7 +34,7 @@ version = m["version"].strip()
 # ---- ZIP (top-level folder must be the plugin folder name) ----
 dist = os.path.join(here, "..", "dist")
 os.makedirs(dist, exist_ok=True)
-zip_name = f"{PLUGIN_DIR_NAME}_v{version}.zip"
+zip_name = f"{PLUGIN_DIR_NAME}.{version}.zip"   # id = text before the first dot
 zip_path = os.path.join(dist, zip_name)
 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
     for root, dirs, files in os.walk(here):

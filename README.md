@@ -4,7 +4,7 @@ Interactive editing tool that moves an edge onto the boundary of a reference
 feature. Built on QGIS core only (no third-party libraries).
 
 ## Install
-Plugins > Manage and Install Plugins > Install from ZIP > `edge_aligner_v<version>.zip`.
+Plugins > Manage and Install Plugins > Install from ZIP > `edge_aligner.<version>.zip`.
 The **Edge Aligner** button appears in its own toolbar (like the Vertex Tool
 button: one icon with a drop-down arrow; View > Toolbars shows or hides it).
 Click the icon to switch the map tool on and off; click the arrow **▾** to open
