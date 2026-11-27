@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
-  <pyqgis_plugin name="Edge Aligner" version="0.8.1">
+  <pyqgis_plugin name="Edge Aligner" version="0.8.2">
     <description>Interactive editing tool: Edge Aligner moves an edge onto a reference boundary.</description>
     <about>One click on an edge aligns the stretch of that edge lying within a tolerance of the nearest reference boundary (polygon or line layers, same or other layer). In "selected features" mode, a click on a reference boundary aligns all selected features to it. Features in layers in edit mode that share the moved stretch are moved too, so shared boundaries stay identical. While hovering, the stretch that will move, its target and the area in between are shown, with an info box at the cursor saying what the click will do (or why it would be refused); Tab picks another nearby reference. "Align all within tolerance" scans the layers in edit mode for every stretch close to a base layer, lists them for review and aligns them all. Z/M values are kept, straight geometries in curve layers are supported, and reference layers may use another CRS. All settings are in a drop-down menu on the tool button. Before writing, every change is checked for invalid geometries, fold-backs, and new gaps or overlaps within a layer. Uses only QGIS core functionality; every change is one undoable edit command per layer.</about>
-    <version>0.8.1</version>
+    <version>0.8.2</version>
     <qgis_minimum_version>3.44</qgis_minimum_version>
     <qgis_maximum_version>4.99</qgis_maximum_version>
     <homepage>https://github.com/rasa995/align_edge_tool</homepage>
-    <file_name>edge_aligner.0.8.1.zip</file_name>
+    <file_name>edge_aligner.0.8.2.zip</file_name>
     <icon>https://raw.githubusercontent.com/rasa995/align_edge_tool/main/icon.svg</icon>
     <author_name>Rasa.H</author_name>
-    <download_url>https://github.com/rasa995/align_edge_tool/releases/download/v0.8.1/edge_aligner.0.8.1.zip</download_url>
+    <download_url>https://github.com/rasa995/align_edge_tool/releases/download/v0.8.2/edge_aligner.0.8.2.zip</download_url>
     <uploaded_by>rasa995</uploaded_by>
     <create_date>2026-11-27</create_date>
     <update_date>2026-11-27</update_date>
@@ -19,6 +19,6 @@
     <tracker>https://github.com/rasa995/align_edge_tool/issues</tracker>
     <repository>https://github.com/rasa995/align_edge_tool</repository>
     <tags>editing,topology,align,snap,edge,boundary</tags>
-    <changelog>0.8.1: published as a stable plugin, so QGIS shows updates under Upgradeable. 0.8.0: hover info box at the cursor (what will move, onto which reference, largest movement, area between, or why the click would be refused) instead of status bar text, and the area between the edges is shaded; Tab / Shift+Tab cycles through nearby references; new "Align all within tolerance" (batch scan, review, align, one undo step per row); Z/M values kept and interpolated for new vertices; straight geometries in curve layers (CompoundCurve, CurvePolygon, MultiCurve, MultiSurface) supported; reference layers may use another CRS (reprojected on the fly); features changed in the meantime are not overwritten; a write error in any layer takes back the layers already written; unit and QGIS integration tests. Existing alignment results are unchanged. 0.7.2: all settings moved into a drop-down menu on the Edge Aligner tool button (like the Vertex Tool button) instead of a full row of toolbar widgets. 0.7.1: the edge can follow the boundaries of several reference features (through junctions); alignments that would fold back onto their own boundary or create new gaps or overlaps in a layer are cancelled; no near-duplicate vertices.</changelog>
+    <changelog>0.8.2: the hover info box stays visible while the edge is hovered and follows the cursor (it was a Qt tooltip, which hid by itself after a moment). 0.8.1: published as a stable plugin, so QGIS shows updates under Upgradeable. 0.8.0: hover info box at the cursor (what will move, onto which reference, largest movement, area between, or why the click would be refused) instead of status bar text, and the area between the edges is shaded; Tab / Shift+Tab cycles through nearby references; new "Align all within tolerance" (batch scan, review, align, one undo step per row); Z/M values kept and interpolated for new vertices; straight geometries in curve layers (CompoundCurve, CurvePolygon, MultiCurve, MultiSurface) supported; reference layers may use another CRS (reprojected on the fly); features changed in the meantime are not overwritten; a write error in any layer takes back the layers already written; unit and QGIS integration tests. Existing alignment results are unchanged. 0.7.2: all settings moved into a drop-down menu on the Edge Aligner tool button (like the Vertex Tool button) instead of a full row of toolbar widgets. 0.7.1: the edge can follow the boundaries of several reference features (through junctions); alignments that would fold back onto their own boundary or create new gaps or overlaps in a layer are cancelled; no near-duplicate vertices.</changelog>
   </pyqgis_plugin>
 </plugins>

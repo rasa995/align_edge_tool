@@ -41,9 +41,9 @@ from qgis.core import (
     QgsWkbTypes,
 )
 from qgis.gui import QgsMapTool, QgsRubberBand
-from qgis.PyQt.QtCore import QEvent, QPoint, QRect, Qt, QTimer
-from qgis.PyQt.QtGui import QColor, QCursor
-from qgis.PyQt.QtWidgets import QToolTip
+from qgis.PyQt.QtCore import QEvent, QPoint, Qt, QTimer
+from qgis.PyQt.QtGui import QColor, QCursor, QTextDocument
+from qgis.PyQt.QtWidgets import QFrame, QLabel, QToolTip
 
 from . import align_core as core
 
@@ -394,6 +394,63 @@ class Cand:
 # Map tool
 # --------------------------------------------------------------------------
 
+class InfoBox(QLabel):
+    """The hover info box: a label drawn on the map canvas next to the
+    cursor. Unlike a Qt tooltip it never hides by itself; the map tool hides
+    it when the cursor leaves the edge, on Esc, or when the tool is switched
+    off. It lets every mouse event through to the canvas."""
+    OFFSET = QPoint(18, 18)
+    MAX_WIDTH = 460
+
+    def __init__(self, canvas):
+        super().__init__(canvas)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setTextFormat(Qt.TextFormat.RichText)
+        self.setWordWrap(True)
+        self.setMargin(6)
+        self.setFrameShape(QFrame.Shape.Box)
+        self.setPalette(QToolTip.palette())
+        self.setAutoFillBackground(True)
+        self._anchor = None
+        self.hide()
+
+    def show_text(self, text, anchor=None):
+        """Show `text` (HTML) next to the canvas pixel position `anchor`."""
+        doc = QTextDocument()
+        doc.setDefaultFont(self.font())
+        doc.setHtml(text)
+        pad = 2 * (self.margin() + self.frameWidth()) + 4
+        width = min(int(doc.idealWidth()) + pad, self.MAX_WIDTH)
+        self.setText(text)
+        self.setFixedWidth(width)
+        self.setFixedHeight(self.heightForWidth(width))
+        if anchor is not None:
+            self._anchor = anchor
+        self._place()
+        self.show()
+        self.raise_()
+
+    def follow(self, anchor):
+        """Move the box along with the cursor (if it is shown)."""
+        self._anchor = anchor
+        if self.isVisible():
+            self._place()
+
+    def _place(self):
+        parent = self.parentWidget()
+        if parent is None or self._anchor is None:
+            return
+        pos = self._anchor + self.OFFSET
+        # keep the box inside the canvas: flip to the other side of the cursor
+        if pos.x() + self.width() > parent.width():
+            pos.setX(self._anchor.x() - self.OFFSET.x() - self.width())
+        if pos.y() + self.height() > parent.height():
+            pos.setY(self._anchor.y() - self.OFFSET.y() - self.height())
+        pos.setX(max(0, pos.x()))
+        pos.setY(max(0, pos.y()))
+        self.move(pos)
+
+
 class AlignEdgeMapTool(QgsMapTool):
 
     def __init__(self, iface, controls):
@@ -414,6 +471,9 @@ class AlignEdgeMapTool(QgsMapTool):
         self.rb_gap = QgsRubberBand(canvas, POLY)
         self.rb_gap.setColor(QColor(255, 120, 0, 60))
         self.rb_gap.setStrokeColor(QColor(255, 120, 0, 0))
+        # what the click will do: a box on the canvas next to the cursor that
+        # stays while the edge is hovered (a Qt tooltip would hide by itself)
+        self.info_box = InfoBox(canvas)
         self._hover_key = None
         self._hover_pt = None
         self._alt = 0                   # candidate reference chosen with Tab
@@ -430,7 +490,7 @@ class AlignEdgeMapTool(QgsMapTool):
         self.rb.reset(LINE)
         self.rb_target.reset(LINE)
         self.rb_gap.reset(POLY)
-        QToolTip.hideText()
+        self.info_box.hide()
 
     def activate(self):
         super().activate()
@@ -450,6 +510,9 @@ class AlignEdgeMapTool(QgsMapTool):
         for band in (self.rb, self.rb_target, self.rb_gap):
             if scene is not None and band.scene() is scene:
                 scene.removeItem(band)
+        self.info_box.hide()
+        self.info_box.setParent(None)
+        self.info_box.deleteLater()
 
     def eventFilter(self, obj, event):
         """Tab / Shift+Tab while hovering an edge: next / previous candidate
@@ -481,6 +544,7 @@ class AlignEdgeMapTool(QgsMapTool):
             self._clear_hover()
             return
         key = (hit.layer.id(), hit.fid, hit.pi, hit.ri, hit.k)
+        self.info_box.follow(self.toCanvasCoordinates(e.mapPoint()))
         if key == self._hover_key:
             return
         e_ = WorkState().get(hit.layer, hit.fid)
@@ -490,7 +554,6 @@ class AlignEdgeMapTool(QgsMapTool):
         self._hover_key = key
         self._hover_pt = e.mapPoint()
         self._alt = 0
-        QToolTip.hideText()
         self.controls.update_units()    # an edited layer may have another unit than the last one
         # immediate feedback: the hovered segment; the full preview follows
         a, b = e_.parts[hit.pi][hit.ri].seg(hit.k)
@@ -598,10 +661,8 @@ class AlignEdgeMapTool(QgsMapTool):
                 "html": _tip_html("Click to align", lines)}
 
     def _show_tip(self, text):
-        canvas = self.canvas()
         pt = self.toCanvasCoordinates(self._hover_pt) if self._hover_pt is not None else None
-        pos = canvas.mapToGlobal(pt) if pt is not None else QCursor.pos()
-        QToolTip.showText(pos + QPoint(16, 16), text, canvas, QRect(), 60000)
+        self.info_box.show_text(text, pt)
 
     def canvasReleaseEvent(self, e):
         if e.button() != Qt.MouseButton.LeftButton:

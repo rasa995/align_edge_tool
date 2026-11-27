@@ -319,13 +319,25 @@ class Integration(unittest.TestCase):
         QApplication.sendEvent(self.iface.canvas, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab,
                                                             Qt.KeyboardModifier.NoModifier))
         self.assertEqual(self.tool._alt, 1)
-        self.tool._hover_compute()          # shows the info box; must not fail offscreen
+        self.tool._hover_compute()          # shows the info box
         self.assertFalse(self.tool.rb_gap.asGeometry().isEmpty())
+        box = self.tool.info_box
+        self.assertFalse(box.isHidden())
+        self.assertIn("Reference 2 of 2", box.text())
+        self.assertLessEqual(box.width(), box.MAX_WIDTH)
+        # it must not hide by itself (a Qt tooltip would, e.g. on a tooltip event)
+        from qgis.PyQt.QtGui import QHelpEvent
+        from qgis.PyQt.QtCore import QPoint
+        QApplication.sendEvent(self.iface.canvas, QHelpEvent(QEvent.Type.ToolTip, QPoint(5, 5),
+                                                             QPoint(5, 5)))
+        QApplication.processEvents()
+        self.assertFalse(box.isHidden())
         QApplication.sendEvent(self.iface.canvas, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Backtab,
                                                             Qt.KeyboardModifier.ShiftModifier))
         self.assertEqual(self.tool._alt, 0)
         self.iface.canvas.unsetMapTool(self.tool)
         self.assertIsNone(self.tool._hover_key)
+        self.assertTrue(box.isHidden())
 
     # ---------------------------------------------------------------- writing safety
     def test_rollback_when_a_layer_fails(self):
