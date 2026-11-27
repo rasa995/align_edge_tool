@@ -1,16 +1,16 @@
-# Align Edge (QGIS 3.44 – 4.x)
+# Edge Aligner (QGIS 3.44 – 4.x)
 
 Interactive editing tool that moves an edge onto the boundary of a reference
 feature. Built on QGIS core only (no third-party libraries).
 
 ## Install
-Plugins > Manage and Install Plugins > Install from ZIP > `align_edge_v<version>.zip`.
-The **Align Edge toolbar** appears (like the Snapping toolbar; dock it among the
+Plugins > Manage and Install Plugins > Install from ZIP > `edge_aligner_v<version>.zip`.
+The **Edge Aligner toolbar** appears (like the Snapping toolbar; dock it among the
 toolbars or drag it out to float it; View > Toolbars shows or hides it):
 
-`[Align Edge] [Mode ▾] [References ▾] Tolerance [ 2.000 m ] [Options ▾] [?]`
+`[Edge Aligner] [Mode ▾] [References ▾] Tolerance [ 2.000 m ] [Options ▾] [?]`
 
-- **Align Edge** – switches the map tool on and off.
+- **Edge Aligner** – switches the map tool on and off.
 - **Mode ▾** – *Clicked edge* or *Selected features → clicked reference*.
 - **References ▾** – checkable list of all line and polygon layers, with the
   buttons All / None / Lines / Polygons. The button shows how many are ticked.

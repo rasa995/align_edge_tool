@@ -14,7 +14,7 @@ import re
 import zipfile
 from xml.sax.saxutils import escape
 
-PLUGIN_DIR_NAME = "align_edge"          # folder name QGIS installs into
+PLUGIN_DIR_NAME = "edge_aligner"          # folder name QGIS installs into
 GH_USER = "rasa995"
 GH_REPO = "align_edge_tool"
 BRANCH = "main"

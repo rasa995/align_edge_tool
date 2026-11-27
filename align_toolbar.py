@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Align Edge toolbar: tool button, mode menu, reference layers drop-down,
+"""Edge Aligner toolbar: tool button, mode menu, reference layers drop-down,
 tolerance field, options menu and help, in one compact row (like the
 Snapping toolbar). Dock it among the toolbars or float it."""
 
@@ -30,8 +30,8 @@ except ImportError:  # Qt5
 
 from .align_tool import LINE, editable_layers, is_supported_layer, project_layers
 
-SETTINGS = "AlignEdge/"
-PROJECT_SCOPE = "AlignEdge"
+SETTINGS = "EdgeAligner/"
+PROJECT_SCOPE = "EdgeAligner"
 PROJECT_KEY = "reference_layers"
 
 HINT_EDGE = ("Clicked edge: click the edge you want to MOVE (a feature in a layer in edit "
@@ -96,15 +96,15 @@ class AlignEdgeToolbar(QToolBar):
     MODE_SELECTED = 1
 
     def __init__(self, iface, tool_action, parent=None):
-        super().__init__("Align Edge", parent)
-        self.setObjectName("AlignEdgeToolbar")
-        self.setToolTip("Align Edge")
+        super().__init__("Edge Aligner", parent)
+        self.setObjectName("EdgeAlignerToolbar")
+        self.setToolTip("Edge Aligner")
         self.iface = iface
         self.last_status = ""
         self.addAction(tool_action)
 
         # ---- mode
-        self.btn_mode = _instant_button("", "Mode of the Align Edge tool")
+        self.btn_mode = _instant_button("", "Mode of the Edge Aligner tool")
         group = QActionGroup(self)
         group.setExclusive(True)
         self.act_edge = QAction("Clicked edge", self)
@@ -160,7 +160,7 @@ class AlignEdgeToolbar(QToolBar):
         self.addWidget(self.sp_tol)
 
         # ---- options
-        self.btn_opt = _instant_button("Options", "Align Edge options")
+        self.btn_opt = _instant_button("Options", "Edge Aligner options")
         menu = self.btn_opt.menu()
         menu.setToolTipsVisible(True)
         for attr, _key, label, tip in OPTIONS:
@@ -187,10 +187,10 @@ class AlignEdgeToolbar(QToolBar):
 
         # ---- help
         icon = QgsApplication.getThemeIcon("/mActionHelpContents.svg")
-        self.act_help = QAction(icon, "Align Edge help", self)
+        self.act_help = QAction(icon, "Edge Aligner help", self)
         if icon.isNull():
             self.act_help.setText("?")
-        self.act_help.setToolTip("How Align Edge works (current mode)")
+        self.act_help.setToolTip("How Edge Aligner works (current mode)")
         self.act_help.triggered.connect(self._show_help)
         self.addAction(self.act_help)
 
@@ -348,4 +348,4 @@ class AlignEdgeToolbar(QToolBar):
 
     def _show_help(self):
         hint = HINT_EDGE if self.mode() == self.MODE_EDGE else HINT_SELECTED
-        QMessageBox.information(self, "Align Edge", hint + "\n\n" + HINT_GENERAL)
+        QMessageBox.information(self, "Edge Aligner", hint + "\n\n" + HINT_GENERAL)

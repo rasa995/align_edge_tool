@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Geometry core of the Align Edge plugin.
+Geometry core of the Edge Aligner plugin.
 
 Pure Python, no QGIS imports, so the logic can be tested without QGIS and
 does not depend on any QGIS API version.

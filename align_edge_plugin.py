@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Plugin entry: Align Edge toolbar, menu entry, map tool."""
+"""Plugin entry: Edge Aligner toolbar, menu entry, map tool."""
 
 import os
 
@@ -13,7 +13,7 @@ except ImportError:  # Qt5
 from .align_tool import AlignEdgeMapTool
 from .align_toolbar import AlignEdgeToolbar
 
-MENU = "&Align Edge"
+MENU = "&Edge Aligner"
 
 
 class AlignEdgePlugin:
@@ -26,9 +26,9 @@ class AlignEdgePlugin:
 
     def initGui(self):
         icon = QIcon(os.path.join(os.path.dirname(__file__), "icon.svg"))
-        self.action = QAction(icon, "Align Edge", self.iface.mainWindow())
+        self.action = QAction(icon, "Edge Aligner", self.iface.mainWindow())
         self.action.setCheckable(True)
-        self.action.setToolTip("Align Edge: move an edge onto a reference boundary")
+        self.action.setToolTip("Edge Aligner: move an edge onto a reference boundary")
         self.action.triggered.connect(self._toggle)
 
         self.toolbar = AlignEdgeToolbar(self.iface, self.action, self.iface.mainWindow())

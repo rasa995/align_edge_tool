@@ -1,9 +1,9 @@
 [general]
-name=Align Edge
+name=Edge Aligner
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 supportsQt6=True
-description=Interactive editing tool: Align Edge moves an edge onto a reference boundary.
+description=Interactive editing tool: Edge Aligner moves an edge onto a reference boundary.
 about=One click on an edge aligns the stretch of that edge lying within a tolerance of the nearest reference boundary (polygon or line layers, same or other layer). In "selected features" mode, a click on a reference boundary aligns all selected features to it. Features in layers in edit mode that share the moved stretch are moved too, so shared boundaries stay identical. All settings are in one compact toolbar (mode, reference layers, tolerance, options). Before writing, every change is checked for invalid geometries, fold-backs, and new gaps or overlaps within a layer. Uses only QGIS core functionality; every change is one undoable edit command per layer.
 version=0.7.1
 author=Rasa.H

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Map tool of the Align Edge plugin (QGIS glue around align_core).
+Map tool of the Edge Aligner plugin (QGIS glue around align_core).
 
 Modes
 -----
@@ -40,7 +40,7 @@ from qgis.PyQt.QtGui import QColor, QCursor
 
 from . import align_core as core
 
-TITLE = "Align Edge"
+TITLE = "Edge Aligner"
 SEARCH_PIXELS = 10
 MAX_NETWORK_VERTICES = 10000   # combined reference: skipped if the area is too busy
 LINE = Qgis.GeometryType.Line
@@ -65,7 +65,7 @@ def editable_layers():
 
 
 def log_exception(level=Qgis.MessageLevel.Info):
-    """Write the exception being handled to the message log (tab 'Align Edge')."""
+    """Write the exception being handled to the message log (tab 'Edge Aligner')."""
     QgsMessageLog.logMessage(traceback.format_exc(), TITLE, level)
 
 
@@ -403,7 +403,7 @@ class AlignEdgeMapTool(QgsMapTool):
         except Exception as ex:  # pylint: disable=broad-exception-caught
             log_exception(Qgis.MessageLevel.Critical)
             self._report("Unexpected error; no changes were made. {}: {}  (Full details: "
-                         "View > Panels > Log Messages, tab 'Align Edge'.)"
+                         "View > Panels > Log Messages, tab 'Edge Aligner'.)"
                          .format(type(ex).__name__, ex), Qgis.MessageLevel.Critical, 0)
 
     # ------------------------------------------------------------ helpers
@@ -1007,7 +1007,7 @@ class AlignEdgeMapTool(QgsMapTool):
             return None, ("No line or polygon layer is in edit mode. Toggle editing on "
                           "the layer(s) you want to change.", warn)
         if not cfg.ref_layers:
-            return None, ("Tick at least one reference layer under References in the Align Edge toolbar.", warn)
+            return None, ("Tick at least one reference layer under References in the Edge Aligner toolbar.", warn)
         hit = self._pick_target_segment(map_pt, targets, cfg.eps)
         if hit is None:
             return None, ("No edge of a feature in a layer being edited was found under "
@@ -1057,7 +1057,7 @@ class AlignEdgeMapTool(QgsMapTool):
                          "then click the reference boundary.", Qgis.MessageLevel.Warning)
             return
         if not cfg.ref_layers:
-            self._report("Tick at least one reference layer under References in the Align Edge toolbar.",
+            self._report("Tick at least one reference layer under References in the Edge Aligner toolbar.",
                          Qgis.MessageLevel.Warning)
             return
         crs = targets[0].crs()
