@@ -5,28 +5,27 @@ feature. Built on QGIS core only (no third-party libraries).
 
 ## Install
 Plugins > Manage and Install Plugins > Install from ZIP > `edge_aligner_v<version>.zip`.
-The **Edge Aligner toolbar** appears (like the Snapping toolbar; dock it among the
-toolbars or drag it out to float it; View > Toolbars shows or hides it):
+The **Edge Aligner** button appears in its own toolbar (like the Vertex Tool
+button: one icon with a drop-down arrow; View > Toolbars shows or hides it).
+Click the icon to switch the map tool on and off; click the arrow **▾** to open
+the settings:
 
-`[Edge Aligner] [Mode ▾] [References ▾] Tolerance [ 2.000 m ] [Options ▾] [?]`
-
-- **Edge Aligner** – switches the map tool on and off.
-- **Mode ▾** – *Clicked edge* or *Selected features → clicked reference*.
-- **References ▾** – checkable list of all line and polygon layers, with the
-  buttons All / None / Lines / Polygons. The button shows how many are ticked.
+- **Mode ▸** – *Clicked edge* or *Selected features → clicked reference*.
+- **References ▸** – checkable list of all line and polygon layers, with the
+  buttons All / None / Lines / Polygons. The entry shows how many are ticked.
 - **Tolerance** – max. movement, in the unit of the layers being edited (shown behind
   the value; no unit is shown if the edited layers use different units).
-- **Options ▾** – *Prefer a reference from another layer*, *Follow references
+- **Options ▸** – *Prefer a reference from another layer*, *Follow references
   through junctions*, *Move coincident features of other layers*, and the
   *Shared-edge tolerance*.
-- **?** – short instructions for the current mode.
+- **Help…** – short instructions for the current mode.
 
 Results and errors appear in the message bar; the hover preview is described in
 the status bar at the bottom of the QGIS window.
 
 ## Use
 1. Toggle editing on the layer(s) you want to change (lines and/or polygons).
-2. Under **References ▾**, tick the **reference layers**. They are never modified.
+2. Under **▾ > References**, tick the **reference layers**. They are never modified.
    A layer may be both edited and reference (within-layer alignment).
    To align polygons to lines (and lines to polygons), tick **both** the line and
    the polygon layer. With "Prefer a reference from another layer" on (default),

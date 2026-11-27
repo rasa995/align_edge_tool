@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Edge Aligner toolbar: tool button, mode menu, reference layers drop-down,
-tolerance field, options menu and help, in one compact row (like the
-Snapping toolbar). Dock it among the toolbars or float it."""
+"""Edge Aligner toolbar: a single tool button with a drop-down arrow (like the
+Vertex Tool button). Clicking the button toggles the map tool; the arrow opens
+the settings: mode, reference layers, tolerance, options and help."""
 
 from types import SimpleNamespace
 
@@ -81,14 +81,11 @@ def _to_float(v, default):
         return default
 
 
-def _instant_button(text, tooltip):
-    btn = QToolButton()
-    btn.setText(text)
-    btn.setToolTip(tooltip)
-    btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-    btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-    btn.setMenu(QMenu(btn))
-    return btn
+def _widget_action(menu, widget):
+    act = QWidgetAction(menu)
+    act.setDefaultWidget(widget)
+    menu.addAction(act)
+    return act
 
 
 class AlignEdgeToolbar(QToolBar):
@@ -101,10 +98,19 @@ class AlignEdgeToolbar(QToolBar):
         self.setToolTip("Edge Aligner")
         self.iface = iface
         self.last_status = ""
-        self.addAction(tool_action)
+
+        # ---- one tool button: click = toggle the map tool, arrow = all settings
+        self.btn_tool = QToolButton()
+        self.btn_tool.setDefaultAction(tool_action)
+        self.btn_tool.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.menu = QMenu(self.btn_tool)
+        self.menu.setToolTipsVisible(True)
+        self.btn_tool.setMenu(self.menu)
+        self.addWidget(self.btn_tool)
 
         # ---- mode
-        self.btn_mode = _instant_button("", "Mode of the Edge Aligner tool")
+        self.menu_mode = self.menu.addMenu("Mode")
+        self.menu_mode.setToolTipsVisible(True)
         group = QActionGroup(self)
         group.setExclusive(True)
         self.act_edge = QAction("Clicked edge", self)
@@ -114,13 +120,12 @@ class AlignEdgeToolbar(QToolBar):
             act.setToolTip(hint)
             act.setStatusTip(hint)
             group.addAction(act)
-            self.btn_mode.menu().addAction(act)
-        self.btn_mode.menu().setToolTipsVisible(True)
-        self.addWidget(self.btn_mode)
+            self.menu_mode.addAction(act)
 
         # ---- reference layers
-        self.btn_refs = _instant_button("References", "Reference layers: boundaries the "
-                                        "edges are aligned to (never changed)")
+        self.menu_refs = self.menu.addMenu("References")
+        self.menu_refs.setToolTip("Reference layers: boundaries the edges are aligned to "
+                                  "(never changed)")
         box = QWidget()
         bl = QVBoxLayout(box)
         bl.setContentsMargins(6, 6, 6, 6)
@@ -138,17 +143,17 @@ class AlignEdgeToolbar(QToolBar):
         for b in (self.btn_all, self.btn_none, self.btn_lines, self.btn_polys):
             row.addWidget(b)
         bl.addLayout(row)
-        wa = QWidgetAction(self.btn_refs.menu())
-        wa.setDefaultWidget(box)
-        self.btn_refs.menu().addAction(wa)
-        self.btn_refs.menu().aboutToShow.connect(self.refresh_layers)
-        self.addWidget(self.btn_refs)
+        _widget_action(self.menu_refs, box)
+        self.menu_refs.aboutToShow.connect(self.refresh_layers)
 
         # ---- tolerance
-        self.addSeparator()
-        lbl_tol = QLabel(" Tolerance ")
+        self.menu.addSeparator()
+        tol_box = QWidget()
+        tl = QHBoxLayout(tol_box)
+        tl.setContentsMargins(24, 2, 6, 2)
+        lbl_tol = QLabel("Tolerance")
         lbl_tol.setToolTip("Max. movement")
-        self.addWidget(lbl_tol)
+        tl.addWidget(lbl_tol)
         self.sp_tol = QDoubleSpinBox()
         self.sp_tol.setDecimals(3)
         self.sp_tol.setRange(0.001, 100000.0)
@@ -157,19 +162,19 @@ class AlignEdgeToolbar(QToolBar):
                                "move, in the units of the edited layers (shown behind the value; "
                                "no unit is shown if they use different units). The stretch itself "
                                "is bounded by the points where the edge cuts the reference.")
-        self.addWidget(self.sp_tol)
+        tl.addWidget(self.sp_tol)
+        _widget_action(self.menu, tol_box)
 
         # ---- options
-        self.btn_opt = _instant_button("Options", "Edge Aligner options")
-        menu = self.btn_opt.menu()
-        menu.setToolTipsVisible(True)
+        self.menu_opt = self.menu.addMenu("Options")
+        self.menu_opt.setToolTipsVisible(True)
         for attr, _key, label, tip in OPTIONS:
             act = QAction(label, self)
             act.setCheckable(True)
             act.setToolTip(tip)
             setattr(self, attr, act)
-            menu.addAction(act)
-        menu.addSeparator()
+            self.menu_opt.addAction(act)
+        self.menu_opt.addSeparator()
         eps_box = QWidget()
         el = QHBoxLayout(eps_box)
         el.setContentsMargins(24, 2, 6, 2)
@@ -180,19 +185,15 @@ class AlignEdgeToolbar(QToolBar):
         self.sp_eps.setToolTip("Features whose boundary lies within this distance of the moved "
                                "stretch count as sharing it and are moved too.")
         el.addWidget(self.sp_eps)
-        ea = QWidgetAction(menu)
-        ea.setDefaultWidget(eps_box)
-        menu.addAction(ea)
-        self.addWidget(self.btn_opt)
+        _widget_action(self.menu_opt, eps_box)
 
         # ---- help
+        self.menu.addSeparator()
         icon = QgsApplication.getThemeIcon("/mActionHelpContents.svg")
-        self.act_help = QAction(icon, "Edge Aligner help", self)
-        if icon.isNull():
-            self.act_help.setText("?")
+        self.act_help = QAction(icon, "Help…", self)
         self.act_help.setToolTip("How Edge Aligner works (current mode)")
         self.act_help.triggered.connect(self._show_help)
-        self.addAction(self.act_help)
+        self.menu.addAction(self.act_help)
 
         self._load_settings()
         self.refresh_layers()
@@ -295,7 +296,7 @@ class AlignEdgeToolbar(QToolBar):
     def _update_refs_label(self):
         n = sum(1 for i in range(self.lst.count())
                 if self.lst.item(i).checkState() == Qt.CheckState.Checked)
-        self.btn_refs.setText("References ({})".format(n) if n else "References (none)")
+        self.menu_refs.setTitle("References ({})".format(n) if n else "References (none)")
 
     # ------------------------------------------------------------ settings
     def _load_settings(self):
@@ -322,8 +323,8 @@ class AlignEdgeToolbar(QToolBar):
 
     def _update_mode_label(self):
         edge = self.mode() == self.MODE_EDGE
-        self.btn_mode.setText("Clicked edge" if edge else "Selected features")
-        self.btn_mode.setToolTip(HINT_EDGE if edge else HINT_SELECTED)
+        self.menu_mode.setTitle("Mode: " + ("Clicked edge" if edge else "Selected features"))
+        self.menu_mode.setToolTip(HINT_EDGE if edge else HINT_SELECTED)
 
     def update_units(self, *args):
         """Unit shown behind the tolerance. The tolerance is applied in the CRS of the edited

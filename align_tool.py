@@ -1007,7 +1007,7 @@ class AlignEdgeMapTool(QgsMapTool):
             return None, ("No line or polygon layer is in edit mode. Toggle editing on "
                           "the layer(s) you want to change.", warn)
         if not cfg.ref_layers:
-            return None, ("Tick at least one reference layer under References in the Edge Aligner toolbar.", warn)
+            return None, ("Tick at least one reference layer under ▾ > References on the Edge Aligner button.", warn)
         hit = self._pick_target_segment(map_pt, targets, cfg.eps)
         if hit is None:
             return None, ("No edge of a feature in a layer being edited was found under "
@@ -1057,7 +1057,7 @@ class AlignEdgeMapTool(QgsMapTool):
                          "then click the reference boundary.", Qgis.MessageLevel.Warning)
             return
         if not cfg.ref_layers:
-            self._report("Tick at least one reference layer under References in the Edge Aligner toolbar.",
+            self._report("Tick at least one reference layer under ▾ > References on the Edge Aligner button.",
                          Qgis.MessageLevel.Warning)
             return
         crs = targets[0].crs()
