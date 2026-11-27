@@ -21,22 +21,29 @@ In both modes, features in layers being edited that share the moved stretch
 boundaries stay identical. The reference feature is never changed.
 """
 
+import html
 import traceback
 
 from qgis.core import (
     Qgis,
     QgsFeatureRequest,
     QgsGeometry,
+    QgsLineString,
     QgsMessageLog,
+    QgsMultiLineString,
+    QgsMultiPolygon,
     QgsPointXY,
+    QgsPolygon,
     QgsProject,
     QgsRectangle,
+    QgsUnitTypes,
     QgsVectorLayer,
     QgsWkbTypes,
 )
 from qgis.gui import QgsMapTool, QgsRubberBand
-from qgis.PyQt.QtCore import Qt, QTimer
+from qgis.PyQt.QtCore import QEvent, QPoint, QRect, Qt, QTimer
 from qgis.PyQt.QtGui import QColor, QCursor
+from qgis.PyQt.QtWidgets import QToolTip
 
 from . import align_core as core
 
@@ -72,16 +79,81 @@ def log_exception(level=Qgis.MessageLevel.Info):
 def geometry_problem(geom):
     if geom is None or geom.isNull() or geom.isEmpty():
         return "empty geometry"
-    wkb = geom.wkbType()
-    if QgsWkbTypes.isCurvedType(wkb):
-        return "curved geometry"
-    if QgsWkbTypes.hasZ(wkb) or QgsWkbTypes.hasM(wkb):
-        return "geometry with Z or M values"
+    if QgsWkbTypes.isCurvedType(geom.wkbType()) and geom.constGet().hasCurvedSegments():
+        return "geometry with arcs"
     return None
 
 
+def straight(geom):
+    """The same geometry as straight segments: a curve type without arcs
+    (CompoundCurve, CurvePolygon, MultiCurve, MultiSurface) becomes the
+    equivalent LineString/Polygon type with exactly the same vertices."""
+    if QgsWkbTypes.isCurvedType(geom.wkbType()):
+        return QgsGeometry(geom.constGet().segmentize())
+    return geom
+
+
+def has_zm(geom):
+    wkb = geom.wkbType()
+    return QgsWkbTypes.hasZ(wkb) or QgsWkbTypes.hasM(wkb)
+
+
+def zm_parts(geom):
+    """[[[(x, y, z, m), ...] per ring] per part] of a straight geometry with
+    Z and/or M values (a missing dimension is NaN); rings keep their closing
+    vertex."""
+    def pts(curve):
+        return [(p.x(), p.y(), p.z(), p.m()) for p in curve.points()]
+    out = []
+    g = geom.constGet()
+    geoms = [g.geometryN(i) for i in range(g.numGeometries())] if geom.isMultipart() else [g]
+    for part in geoms:
+        if geom.type() == LINE:
+            out.append([pts(part)])
+        else:
+            rings = [pts(part.exteriorRing())]
+            rings += [pts(part.interiorRing(i)) for i in range(part.numInteriorRings())]
+            out.append(rings)
+    return out
+
+
+def _zm_curve(pts, zm, has_z, has_m):
+    vals = core.carry_zm(zm, pts)
+    return QgsLineString([p[0] for p in pts], [p[1] for p in pts],
+                         [v[0] for v in vals] if has_z else [],
+                         [v[1] for v in vals] if has_m else [])
+
+
+def _zm_geom(kind, parts, zm, has_z, has_m):
+    """Geometry with Z/M from the 2D parts; Z/M carried over from the
+    original vertices (zm, as zm_parts) and interpolated for new ones."""
+    if kind == "line":
+        geoms = [_zm_curve(part[0].to_list(), zm[pi][0], has_z, has_m)
+                 for pi, part in enumerate(parts)]
+        multi = QgsMultiLineString()
+    else:
+        geoms = []
+        for pi, part in enumerate(parts):
+            poly = QgsPolygon()
+            for ri, ring in enumerate(part):
+                curve = _zm_curve(ring.to_list(), zm[pi][ri], has_z, has_m)
+                if ri == 0:
+                    poly.setExteriorRing(curve)
+                else:
+                    poly.addInteriorRing(curve)
+            geoms.append(poly)
+        multi = QgsMultiPolygon()
+    if len(geoms) == 1:
+        return QgsGeometry(geoms[0])
+    for g in geoms:
+        multi.addGeometry(g)
+    return QgsGeometry(multi)
+
+
 def geom_to_parts(geom):
-    """QgsGeometry -> ('line'|'poly', [[Ring, ...], ...])"""
+    """QgsGeometry -> ('line'|'poly', [[Ring, ...], ...]) in 2D (Z/M and
+    curve types without arcs are read as plain XY)."""
+    geom = straight(geom)
     if geom.type() == LINE:
         lines = geom.asMultiPolyline() if geom.isMultipart() else [geom.asPolyline()]
         return "line", [[core.Ring([(p.x(), p.y()) for p in line], False)] for line in lines]
@@ -90,7 +162,28 @@ def geom_to_parts(geom):
                     for poly in polys]
 
 
-def parts_to_geom(kind, parts, layer, was_multi):
+def parts_to_geom(kind, parts, layer, was_multi, zm=None, has_z=False, has_m=False,
+                  curved=False):
+    """Geometry from the 2D parts. zm (see zm_parts): the original Z/M values,
+    carried over to the new geometry. curved: write a curve type (no arcs)."""
+    if kind == "line" and any(len(part[0].to_list()) < 2 for part in parts):
+        return None
+    if kind != "line" and any(ring.n < 3 for part in parts for ring in part):
+        return None
+    if zm is not None:
+        geom = _zm_geom(kind, parts, zm, has_z, has_m)
+    else:
+        geom = _xy_geom(kind, parts)
+    if geom is None:
+        return None
+    if curved:
+        geom = QgsGeometry(geom.constGet().toCurveType())
+    if was_multi or QgsWkbTypes.isMultiType(layer.wkbType()):
+        geom.convertToMultiType()
+    return geom
+
+
+def _xy_geom(kind, parts):
     if kind == "line":
         lines = []
         for part in parts:
@@ -111,8 +204,6 @@ def parts_to_geom(kind, parts, layer, was_multi):
             polys.append(rings)
         geom = (QgsGeometry.fromMultiPolygonXY(polys) if len(polys) > 1
                 else QgsGeometry.fromPolygonXY(polys[0]))
-    if was_multi or QgsWkbTypes.isMultiType(layer.wkbType()):
-        geom.convertToMultiType()
     return geom
 
 
@@ -200,13 +291,41 @@ def only_densified(kind, orig_lists, new_lists, keep_pts, eps):
     return True
 
 
+def _unit(crs):
+    """' m', ' ft', ' °' ... for the map units of crs ('' if unknown)."""
+    try:
+        abbr = QgsUnitTypes.toAbbreviatedString(crs.mapUnits())
+    except (AttributeError, TypeError):
+        abbr = ""
+    return " " + abbr if abbr else ""
+
+
+def _short_list(items, limit=5):
+    if len(items) <= limit:
+        return ", ".join(items)
+    return ", ".join(items[:limit]) + " and {} more".format(len(items) - limit)
+
+
+def _tip_html(title, lines, warn=False):
+    """Text of the info box shown next to the cursor."""
+    color = "#c05000" if warn else "#007a33"
+    body = "".join("<div style='margin-top:2px'>{}</div>".format(html.escape(str(l), quote=False))
+                   for l in lines if l)
+    return ("<div><b style='color:{}'>{}</b>{}</div>"
+            .format(color, html.escape(title, quote=False), body))
+
+
 # --------------------------------------------------------------------------
 # Working copy of the geometries touched by one operation
 # --------------------------------------------------------------------------
 
 class Entry:
     __slots__ = ("layer", "fid", "kind", "parts", "orig_lists", "orig_valid", "was_multi",
-                 "orig_geom")
+                 "orig_geom", "zm", "has_z", "has_m", "curved")
+
+    def new_geometry(self):
+        return parts_to_geom(self.kind, self.parts, self.layer, self.was_multi, self.zm,
+                             self.has_z, self.has_m, self.curved)
 
 
 class WorkState:
@@ -232,6 +351,11 @@ class WorkState:
         e.orig_valid = geom.isGeosValid()
         e.was_multi = geom.isMultipart()
         e.orig_geom = QgsGeometry(geom)
+        wkb = geom.wkbType()
+        e.has_z, e.has_m = QgsWkbTypes.hasZ(wkb), QgsWkbTypes.hasM(wkb)
+        e.zm = zm_parts(straight(geom)) if (e.has_z or e.has_m) else None
+        e.curved = (QgsWkbTypes.isCurvedType(wkb)
+                    or QgsWkbTypes.isCurvedType(layer.wkbType()))
         self.entries[key] = e
         return e
 
@@ -241,7 +365,7 @@ class Hit:
 
 
 class Reference:
-    __slots__ = ("lw", "keys", "layer", "label", "m")
+    __slots__ = ("lw", "keys", "layer", "label", "m", "alt", "alts")
 
     def __init__(self, lw, keys, layer, label, m):
         self.lw = lw          # reference linework (one ring or merged line)
@@ -249,6 +373,8 @@ class Reference:
         self.layer = layer
         self.label = label    # for messages
         self.m = m            # measure on lw nearest to the click (for flashing)
+        self.alt = 0          # which of the candidate references (Tab cycles them)
+        self.alts = 1         # number of candidate references at the edge
 
 
 class Cand:
@@ -284,8 +410,14 @@ class AlignEdgeMapTool(QgsMapTool):
         self.rb_target.setColor(QColor(255, 120, 0, 230))
         self.rb_target.setWidth(3)
         self.rb_target.setLineStyle(Qt.PenStyle.DashLine)
+        # the area between the stretch and the reference (shaded)
+        self.rb_gap = QgsRubberBand(canvas, POLY)
+        self.rb_gap.setColor(QColor(255, 120, 0, 60))
+        self.rb_gap.setStrokeColor(QColor(255, 120, 0, 0))
         self._hover_key = None
         self._hover_pt = None
+        self._alt = 0                   # candidate reference chosen with Tab
+        self._work_crs = None           # CRS the current operation works in
         self._hover_timer = QTimer(self)
         self._hover_timer.setSingleShot(True)
         self._hover_timer.timeout.connect(self._hover_compute)
@@ -297,22 +429,40 @@ class AlignEdgeMapTool(QgsMapTool):
         self._hover_timer.stop()
         self.rb.reset(LINE)
         self.rb_target.reset(LINE)
+        self.rb_gap.reset(POLY)
+        QToolTip.hideText()
 
     def activate(self):
         super().activate()
         self.controls.update_units()
+        self.canvas().installEventFilter(self)
 
     def deactivate(self):
         self._clear_hover()
+        self.canvas().removeEventFilter(self)
         super().deactivate()
 
     def cleanup(self):
         """Plugin unload: stop the hover preview and take the rubber bands off the canvas."""
         self._clear_hover()
+        self.canvas().removeEventFilter(self)
         scene = self.canvas().scene()
-        for band in (self.rb, self.rb_target):
+        for band in (self.rb, self.rb_target, self.rb_gap):
             if scene is not None and band.scene() is scene:
                 scene.removeItem(band)
+
+    def eventFilter(self, obj, event):
+        """Tab / Shift+Tab while hovering an edge: next / previous candidate
+        reference. (The canvas would otherwise use Tab to move the focus.)"""
+        if (event.type() == QEvent.Type.KeyPress
+                and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
+                and self._hover_key is not None):
+            back = (event.key() == Qt.Key.Key_Backtab
+                    or bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+            self._alt += -1 if back else 1
+            self._hover_timer.start(0)
+            return True
+        return False
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key.Key_Escape:
@@ -339,51 +489,119 @@ class AlignEdgeMapTool(QgsMapTool):
             return
         self._hover_key = key
         self._hover_pt = e.mapPoint()
+        self._alt = 0
+        QToolTip.hideText()
         self.controls.update_units()    # an edited layer may have another unit than the last one
         # immediate feedback: the hovered segment; the full preview follows
         a, b = e_.parts[hit.pi][hit.ri].seg(hit.k)
         self.rb.setToGeometry(polyline_geom([a, b]), hit.layer)
         self.rb_target.reset(LINE)
+        self.rb_gap.reset(POLY)
         self._hover_timer.start(150)
 
     def _hover_compute(self):
         """Preview of the click at the hovered segment: the stretch that would
-        move (solid) and the part of the reference it would go to (dashed)."""
+        move (solid), the part of the reference it would go to (dashed), the
+        area in between (shaded), and an info box next to the cursor saying
+        what the click will do. The click is computed in full (without
+        writing), so the box also says when the click would be refused."""
         key = self._hover_key
         if key is None or self._hover_pt is None:
             return
         try:
-            cfg = self.controls.current_settings()
-            if cfg.tol <= cfg.eps or not cfg.ref_layers:
-                return
-            res, _msg = self._resolve_clicked(self._hover_pt, cfg)
-            if res is None or self._hover_key != key:
-                return
-            hit, _state, _k, _entry, ring, ref, _crs = res
-            work = ring.copy()
-            st, _m = core.click_stretch(work, ref.lw, cfg.tol, cfg.eps, hit.q)
-            if st is None:
-                return
-            a_from = core.anchor_at(work, st[0], cfg.eps)
-            a_to = core.anchor_at(work, st[1], cfg.eps)
-            run = core.locate_run(work, a_from, a_to)
-            if run is None:
-                return
-            run_pts = work.run_points(*run)
-            path, status, h = core.build_path(ref.lw, run_pts, cfg.tol, cfg.eps)
-            if self._hover_key != key:
-                return
-            self.rb.setToGeometry(polyline_geom(run_pts), hit.layer)
-            if path is not None:
-                self.rb_target.setToGeometry(polyline_geom(path), hit.layer)
-                self.controls.set_status("Preview: {} vertices move onto {} (max. movement "
-                                     "{:.2f}). Click to align.".format(len(run_pts), ref.label,
-                                                                     h or 0.0))
-            else:
-                self.rb_target.reset(LINE)
-                self.controls.set_status("Preview: " + core.STATUS_TEXT[status].format(h=h or 0.0))
+            info = self.preview_at(self._hover_pt, self._alt, key)
         except Exception:  # pylint: disable=broad-exception-caught
             return         # hover only: the same error is reported in full on the click
+        if info is None or self._hover_key != key:
+            return
+        self._show_tip(info["html"])
+
+    def preview_at(self, map_pt, alt=0, key=None):
+        """Compute the preview of a click at map_pt (clicked-edge mode) and
+        show it on the canvas. Returns {"ok": bool, "html": info box text,
+        ...} or None if there is nothing to show."""
+        cfg = self.controls.current_settings()
+        if cfg.tol <= cfg.eps:
+            return {"ok": False, "html": _tip_html(
+                "Cannot align", ["The tolerance must be larger than the shared-edge "
+                                 "tolerance."], warn=True)}
+        res, msg = self._resolve_clicked(map_pt, cfg, alt)
+        if key is not None and self._hover_key != key:
+            return None
+        if res is None:
+            return {"ok": False, "html": _tip_html("Cannot align", [msg[0]], warn=True)}
+        hit, state, k, _entry, ring, ref, crs = res
+        unit = _unit(crs)
+        lines = ["Reference: " + ref.label]
+        if ref.alts > 1:
+            lines.append("Reference {} of {} (Tab / Shift+Tab for another)"
+                         .format(ref.alt % ref.alts + 1, ref.alts))
+        work = ring.copy()
+        st, why = core.click_stretch(work, ref.lw, cfg.tol, cfg.eps, hit.q)
+        run = None
+        if st is not None:
+            run = core.locate_run(work, core.anchor_at(work, st[0], cfg.eps),
+                                  core.anchor_at(work, st[1], cfg.eps))
+        if run is None:
+            self.rb_target.reset(LINE)
+            self.rb_gap.reset(POLY)
+            return {"ok": False, "html": _tip_html(
+                "Nothing to align here", lines + [why or "No stretch to align."], warn=True)}
+        run_pts = work.run_points(*run)
+        path, status, h = core.build_path(ref.lw, run_pts, cfg.tol, cfg.eps)
+        self.rb.setToGeometry(polyline_geom(run_pts), hit.layer)
+        if path is None:
+            self.rb_target.reset(LINE)
+            self.rb_gap.reset(POLY)
+            return {"ok": False, "html": _tip_html(
+                "Nothing to align here",
+                lines + [core.STATUS_TEXT[status].format(h=h or 0.0)], warn=True)}
+        self.rb_target.setToGeometry(polyline_geom(path), hit.layer)
+        gap_pts = run_pts + path[::-1]
+        area = core.polygon_area(gap_pts)
+        if len(gap_pts) >= 3:
+            gap = QgsGeometry.fromPolygonXY([[QgsPointXY(*p) for p in gap_pts + gap_pts[:1]]])
+            self.rb_gap.setToGeometry(gap, hit.layer)
+            try:
+                if not gap.isGeosValid():
+                    area = gap.makeValid().area()
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass           # keep the shoelace area
+        else:
+            self.rb_gap.reset(POLY)
+        lines.append("Largest movement: {:.3f}{}  ·  area between: {:.4g}{}".format(
+            h or 0.0, unit, area, unit + "²" if unit else ""))
+
+        # the click itself, without writing
+        collect = self._new_collect()
+        self._run_align(state, k, hit.pi, hit.ri, ref, cfg, crs, hit.q, collect)
+        keep = [p for pth in collect["paths"] for p in pth]
+        ok, problem, _by_layer, changed = self._prepare(
+            state, collect["primary"], keep, collect.get("eps", 0.0),
+            collect.get("area_checks", True))
+        if not ok:
+            if problem == "Nothing to change." and collect["messages"]:
+                problem = " ".join(dict.fromkeys(collect["messages"]))
+            return {"ok": False, "html": _tip_html("Click would be refused",
+                                                   lines + [problem], warn=True)}
+        moved = ["'{}' feature {}".format(e.layer.name(), e.fid) for kk, e, _g in changed
+                 if kk in collect["primary"]]
+        along = ["'{}' feature {}".format(e.layer.name(), e.fid) for kk, e, _g in changed
+                 if kk not in collect["primary"]]
+        lines.insert(0, "Moves: " + ", ".join(moved))
+        if along:
+            lines.insert(1, "Moves along (coincident): " + _short_list(along))
+        if collect["readonly"]:
+            lines.append("Not changed (not in edit mode): "
+                         + ", ".join("'{}'".format(n) for n in sorted(collect["readonly"])))
+        return {"ok": True, "moved": moved, "along": along, "area": area, "h": h,
+                "html": _tip_html("Click to align", lines)}
+
+    def _show_tip(self, text):
+        canvas = self.canvas()
+        pt = self.toCanvasCoordinates(self._hover_pt) if self._hover_pt is not None else None
+        pos = canvas.mapToGlobal(pt) if pt is not None else QCursor.pos()
+        QToolTip.showText(pos + QPoint(16, 16), text, canvas, QRect(), 60000)
 
     def canvasReleaseEvent(self, e):
         if e.button() != Qt.MouseButton.LeftButton:
@@ -394,10 +612,11 @@ class AlignEdgeMapTool(QgsMapTool):
             self._report("The alignment tolerance must be larger than the shared-edge "
                          "tolerance.", Qgis.MessageLevel.Warning)
             return
+        alt = self._alt if self._hover_key is not None else 0
         self._clear_hover()
         try:
             if cfg.mode == self.controls.MODE_EDGE:
-                self._align_clicked_edge(e.mapPoint(), cfg)
+                self._align_clicked_edge(e.mapPoint(), cfg, alt)
             else:
                 self._align_selected(e.mapPoint(), cfg)
         except Exception as ex:  # pylint: disable=broad-exception-caught
@@ -457,9 +676,25 @@ class AlignEdgeMapTool(QgsMapTool):
                     0 if h.layer.id() == active_id else 1, h.d)
         return min(tied, key=prio)[0]
 
+    def _req(self, layer, request):
+        """Reference layers may use another CRS than the layers being edited:
+        their geometries (and the filter rectangle) are then in the CRS of
+        the edited layer (self._work_crs). References are never written, so
+        reprojecting them cannot shift any stored vertex."""
+        crs = self._work_crs
+        if crs is not None and crs.isValid() and layer.crs() != crs:
+            request.setDestinationCrs(crs, QgsProject.instance().transformContext())
+        return request
+
+    def _ref_geometry(self, layer, fid):
+        req = self._req(layer, QgsFeatureRequest(fid).setNoAttributes())
+        for f in layer.getFeatures(req):
+            return f.geometry()
+        return None
+
     def _line_chains(self, layer, bb, exclude_fids):
         geoms = []
-        for f in layer.getFeatures(bbox_request(bb)):
+        for f in layer.getFeatures(self._req(layer, bbox_request(bb))):
             if f.id() in exclude_fids:
                 continue
             g = f.geometry()
@@ -480,7 +715,7 @@ class AlignEdgeMapTool(QgsMapTool):
 
     def _chain_keys(self, layer, bb, lw, eps):
         keys = set()
-        for f, _g, parts in feature_parts(layer, bbox_request(bb)):
+        for f, _g, parts in feature_parts(layer, self._req(layer, bbox_request(bb))):
             if all(lw.nearest(p, eps) is not None
                    for _pi, _ri, ring in rings_of(parts) for p in ring.pts):
                 keys.add((layer.id(), f.id()))
@@ -508,7 +743,8 @@ class AlignEdgeMapTool(QgsMapTool):
         cell = 2.0 * cfg.tol
         for layer in ref_layers:
             if layer.geometryType() == POLY:
-                for f, g, parts in feature_parts(layer, rect_request(pt, radius), exclude):
+                for f, g, parts in feature_parts(
+                        layer, self._req(layer, rect_request(pt, radius)), exclude):
                     key = (layer.id(), f.id())
                     inside = click_geom is not None and g.contains(click_geom)
                     label = "'{}' feature {}".format(layer.name(), f.id())
@@ -533,11 +769,13 @@ class AlignEdgeMapTool(QgsMapTool):
         return cands
 
     def _reference_for_edge(self, ref_layers, primary_key, q, a, b, cfg, chain_bb,
-                            click_pt=None):
+                            click_pt=None, alt=0):
         """Nearest reference boundary to q that does not already contain the
         clicked segment a-b. With 'prefer other layer', candidates from
         layers other than the clicked feature's layer win. Of coincident
-        candidates, the polygon containing `click_pt` wins."""
+        candidates, the polygon containing `click_pt` wins.
+        alt > 0 (Tab): the alt-th other candidate instead, in order of
+        distance (cycling)."""
         cands = self._candidates(ref_layers, q, cfg.tol, {primary_key}, cfg, chain_bb,
                                  seg=(a, b))
         if not cands:
@@ -550,7 +788,18 @@ class AlignEdgeMapTool(QgsMapTool):
         choice = min(pool, key=lambda c: c.d)
         if click_pt is not None:
             choice = self._prefer_containing(choice, pool, click_pt, cfg)
-        return self._finish_reference(choice, cands, cfg, chain_bb)
+        # candidates the user can cycle through with Tab: the default choice
+        # first, then the others by distance; boundaries coinciding with one
+        # already listed at the nearest point are the same choice
+        order = [choice]
+        for c in sorted(cands, key=lambda c: c.d):
+            if not any(c is o or (abs(c.d - o.d) <= cfg.eps and core.dist(c.pt, o.pt) <= cfg.eps)
+                       for o in order):
+                order.append(c)
+        pick = order[alt % len(order)]
+        ref = self._finish_reference(pick, cands, cfg, chain_bb)
+        ref.alt, ref.alts = alt % len(order), len(order)
+        return ref
 
     def _prefer_containing(self, choice, pool, click_pt, cfg):
         """Where several reference boundaries coincide at the nearest point
@@ -564,8 +813,8 @@ class AlignEdgeMapTool(QgsMapTool):
         for c in tied:
             if c.keys and c.layer.geometryType() == POLY:
                 _lid, fid = next(iter(c.keys))
-                g = c.layer.getFeature(fid).geometry()
-                if not geometry_problem(g) and g.contains(click_geom):
+                g = self._ref_geometry(c.layer, fid)
+                if not geometry_problem(g) and straight(g).contains(click_geom):
                     return c
         return choice
 
@@ -647,7 +896,8 @@ class AlignEdgeMapTool(QgsMapTool):
         bb = core.bbox_of(area, tol + eps)
         feats = []
         for layer in ref_layers:
-            for f, _g, parts in feature_parts(layer, bbox_request(bb), {primary_key}):
+            for f, _g, parts in feature_parts(layer, self._req(layer, bbox_request(bb)),
+                                              {primary_key}):
                 rings = [r.to_list() for _pi, _ri, r in rings_of(parts)]
                 pieces = [pc for r in rings for pc in core.clip_polyline(r, bb)]
                 if pieces:
@@ -785,7 +1035,60 @@ class AlignEdgeMapTool(QgsMapTool):
         from the new edges in keep_pts, or a ring starting at another vertex)
         are not written. With area_checks, polygons must not get new overlaps
         or new enclosed gaps with other polygons of their layer.
+        All or nothing: if writing fails in any layer (or raises an error),
+        the layers already written are taken back.
         Returns (ok, message)."""
+        ok, problem, by_layer, changed = self._prepare(state, primary_keys, keep_pts, eps,
+                                                       area_checks)
+        if not ok:
+            return False, problem
+        for layer, _items in by_layer.values():
+            if not layer.isEditable():
+                return False, ("'{}' is no longer in edit mode; no changes were made."
+                               .format(layer.name()))
+        for _key, e, _g in changed:
+            cur = None
+            for f in e.layer.getFeatures(QgsFeatureRequest(e.fid).setNoAttributes()):
+                cur = f.geometry()
+            if cur is None or cur.asWkb() != e.orig_geom.asWkb():
+                return False, ("Feature {} in '{}' was changed or deleted in the meantime; no "
+                               "changes were made. Try again.".format(e.fid, e.layer.name()))
+        counts = []
+        written = []
+
+        def take_back():
+            # all or nothing: take back the layers already written, so that
+            # boundaries shared between layers stay identical
+            for done in reversed(written):
+                done.undoStack().undo()
+                done.triggerRepaint()
+
+        for layer, items in by_layer.values():
+            layer.beginEditCommand(label)
+            try:
+                ok = all(layer.changeGeometry(fid, g) for fid, g in items)
+            except Exception as ex:     # pylint: disable=broad-exception-caught
+                log_exception(Qgis.MessageLevel.Critical)
+                layer.destroyEditCommand()
+                take_back()
+                return False, ("Writing to '{}' failed ({}: {}); no changes were made (changes "
+                               "already written to other layers were taken back)."
+                               .format(layer.name(), type(ex).__name__, ex))
+            if not ok:
+                layer.destroyEditCommand()
+                take_back()
+                return False, ("Writing to '{}' failed; no changes were made (changes already "
+                               "written to other layers were taken back).".format(layer.name()))
+            layer.endEditCommand()
+            written.append(layer)
+            counts.append("{}: {}".format(layer.name(), len(items)))
+        for layer in written:
+            layer.triggerRepaint()
+        return True, ", ".join(counts)
+
+    def _prepare(self, state, primary_keys=(), keep_pts=(), eps=0.0, area_checks=True):
+        """The checks of _commit, without writing (also used by the preview).
+        Returns (ok, message, by_layer, changed)."""
         by_layer = {}
         changed = []
         # fixed order: the clicked feature(s) first, so messages are reproducible
@@ -797,7 +1100,7 @@ class AlignEdgeMapTool(QgsMapTool):
             if key not in primary_keys and only_densified(e.kind, e.orig_lists, cur,
                                                           keep_pts, eps):
                 continue
-            g = parts_to_geom(e.kind, e.parts, e.layer, e.was_multi)
+            g = e.new_geometry()
             broken = g is None or g.isEmpty() or (e.orig_valid and not g.isGeosValid())
             if broken:
                 if key in primary_keys:
@@ -810,38 +1113,15 @@ class AlignEdgeMapTool(QgsMapTool):
                 return False, ("Aborted: feature {} in '{}' ({}) would become an invalid "
                                "geometry (e.g. a sliver collapsing or a self-intersection). "
                                "No changes were made. {}"
-                               .format(e.fid, e.layer.name(), role, hint))
+                               .format(e.fid, e.layer.name(), role, hint)), by_layer, changed
             by_layer.setdefault(e.layer.id(), (e.layer, []))[1].append((e.fid, g))
             changed.append((key, e, g))
         if not by_layer:
-            return False, "Nothing to change."
+            return False, "Nothing to change.", by_layer, changed
         problem = self._topology_problem(changed, primary_keys, eps, area_checks)
         if problem:
-            return False, problem
-        for layer, _items in by_layer.values():
-            if not layer.isEditable():
-                return False, ("'{}' is no longer in edit mode; no changes were made."
-                               .format(layer.name()))
-        counts = []
-        written = []
-        for layer, items in by_layer.values():
-            layer.beginEditCommand(label)
-            ok = all(layer.changeGeometry(fid, g) for fid, g in items)
-            if not ok:
-                layer.destroyEditCommand()
-                # all or nothing: take back the layers already written, so that
-                # boundaries shared between layers stay identical
-                for done in reversed(written):
-                    done.undoStack().undo()
-                    done.triggerRepaint()
-                return False, ("Writing to '{}' failed; no changes were made (changes already "
-                               "written to other layers were taken back).".format(layer.name()))
-            layer.endEditCommand()
-            written.append(layer)
-            counts.append("{}: {}".format(layer.name(), len(items)))
-        for layer in written:
-            layer.triggerRepaint()
-        return True, ", ".join(counts)
+            return False, problem, by_layer, changed
+        return True, None, by_layer, changed
 
     @staticmethod
     def _role(key, primary_keys):
@@ -997,8 +1277,9 @@ class AlignEdgeMapTool(QgsMapTool):
                 "primary": set(), "ref": None}
 
     # ------------------------------------------------------------ modes
-    def _resolve_clicked(self, map_pt, cfg):
-        """Clicked feature and reference for clicked-edge mode.
+    def _resolve_clicked(self, map_pt, cfg, alt=0):
+        """Clicked feature and reference for clicked-edge mode. alt: candidate
+        reference chosen with Tab (0 = the default choice).
         Returns ((hit, state, key, entry, ring, ref, crs), None) or
         (None, (message, level))."""
         warn = Qgis.MessageLevel.Warning
@@ -1014,34 +1295,35 @@ class AlignEdgeMapTool(QgsMapTool):
                           "the cursor.", warn)
         layer = hit.layer
         crs = layer.crs()
-        ref_layers = [l for l in cfg.ref_layers if l.crs() == crs]
-        if not ref_layers:
-            return None, ("The reference layers do not use the same CRS as '{}'. All "
-                          "involved layers must share one CRS.".format(layer.name()), warn)
+        self._work_crs = crs            # references in other CRSs are reprojected to it
+        ref_layers = list(cfg.ref_layers)
         state = WorkState()
         key = (layer.id(), hit.fid)
         entry = state.get(layer, hit.fid)
         if entry is None:
-            return None, ("The clicked feature has an unsupported geometry (empty, curved, "
-                          "or with Z/M values).", warn)
+            return None, ("The clicked feature has an unsupported geometry (empty, or with "
+                          "arcs).", warn)
         ring = entry.parts[hit.pi][hit.ri]
         a, b = ring.seg(hit.k)
         p = self.toLayerCoordinates(layer, map_pt)
         ref = self._reference_for_edge(ref_layers, key, hit.q, a, b, cfg,
-                                       ring.bbox(cfg.tol), click_pt=(p.x(), p.y()))
+                                       ring.bbox(cfg.tol), click_pt=(p.x(), p.y()), alt=alt)
         if ref is None:
             return None, ("No reference boundary within {:g} map units of the clicked edge. "
                           "(Boundaries that already share the clicked edge are ignored.)"
                           .format(cfg.tol), warn)
         if getattr(cfg, "through_junctions", False):
+            chosen = ref
             ref = self._best_variant(ref, ring, hit, key, cfg)
-            combined = self._network_reference(ref_layers, key, ring, hit, a, b, cfg, ref)
-            if combined is not None:
-                ref = combined
+            if chosen.alt == 0:         # a reference picked with Tab is used as it is
+                combined = self._network_reference(ref_layers, key, ring, hit, a, b, cfg, ref)
+                if combined is not None:
+                    ref = combined
+            ref.alt, ref.alts = chosen.alt, chosen.alts
         return (hit, state, key, entry, ring, ref, crs), None
 
-    def _align_clicked_edge(self, map_pt, cfg):
-        res, msg = self._resolve_clicked(map_pt, cfg)
+    def _align_clicked_edge(self, map_pt, cfg, alt=0):
+        res, msg = self._resolve_clicked(map_pt, cfg, alt)
         if res is None:
             self._report(msg[0], msg[1])
             return
@@ -1065,11 +1347,8 @@ class AlignEdgeMapTool(QgsMapTool):
             self._report("The layers with selected features use different CRSs.",
                          Qgis.MessageLevel.Warning)
             return
-        ref_layers = [l for l in cfg.ref_layers if l.crs() == crs]
-        if not ref_layers:
-            self._report("The reference layers do not use the same CRS as the selected "
-                         "features.", Qgis.MessageLevel.Warning)
-            return
+        self._work_crs = crs            # references in other CRSs are reprojected to it
+        ref_layers = list(cfg.ref_layers)
         p = self.toLayerCoordinates(targets[0], map_pt)
         pt = (p.x(), p.y())
         radius = self._radius_for(targets[0], map_pt)
@@ -1109,3 +1388,117 @@ class AlignEdgeMapTool(QgsMapTool):
             collect["messages"].append("{} selected feature(s) skipped (unsupported "
                                        "geometry).".format(skipped))
         self._finish(state, collect, crs)
+
+    # ------------------------------------------------------------ batch
+    def _batch_references(self, base_layer, bb, cfg, exclude=()):
+        """Reference boundaries of the base layer in the box bb (work CRS):
+        every polygon ring, or the merged line chains."""
+        refs = []
+        cell = 2.0 * cfg.tol
+        if base_layer.geometryType() == POLY:
+            req = self._req(base_layer, bbox_request(bb))
+            for f, _g, parts in feature_parts(base_layer, req, exclude):
+                label = "'{}' feature {}".format(base_layer.name(), f.id())
+                for _pi, _ri, ring in rings_of(parts):
+                    lw = core.Linework(ring.to_list(), True, cell)
+                    refs.append(Reference(lw, {(base_layer.id(), f.id())}, base_layer,
+                                          label, 0.0))
+        else:
+            excl = {fid for lid, fid in exclude if lid == base_layer.id()}
+            for pts, closed in self._line_chains(base_layer, bb, excl):
+                lw = core.Linework(pts, closed, cell)
+                refs.append(Reference(lw, self._chain_keys(base_layer, bb, lw, cfg.eps),
+                                      base_layer, "line(s) of '{}'".format(base_layer.name()),
+                                      0.0))
+        return refs
+
+    def batch_scan(self, base_layer, layers, cfg, extent=None, progress=None):
+        """Every feature of `layers` with a stretch that can be aligned to a
+        boundary of `base_layer` within cfg.tol (like selected-features mode,
+        but for all features). extent: QgsRectangle in map canvas coordinates
+        (None = whole layers). progress(done, total) -> False cancels.
+        Nothing is written. Returns [BatchItem]."""
+        items = []
+        jobs = []
+        for layer in layers:
+            req = QgsFeatureRequest().setNoAttributes()
+            if extent is not None:
+                req.setFilterRect(self.toLayerCoordinates(layer, extent))
+            jobs.extend((layer, f) for f in layer.getFeatures(req))
+        for n, (layer, f) in enumerate(jobs):
+            if progress is not None and progress(n, len(jobs)) is False:
+                break
+            g = f.geometry()
+            if geometry_problem(g):
+                continue
+            self._work_crs = layer.crs()
+            key = (layer.id(), f.id())
+            kind, parts = geom_to_parts(g)
+            bb = None
+            for _pi, _ri, ring in rings_of(parts):
+                bb = core.bbox_union(bb, ring.bbox(cfg.tol))
+            if bb is None:
+                continue
+            for ref in self._batch_references(base_layer, bb, cfg, {key}):
+                ref_bb = ref.lw.bbox(cfg.tol)
+                count, h = 0, 0.0
+                for _pi, ri, ring in rings_of(parts):
+                    if not core.bbox_intersects(ring.bbox(), ref_bb):
+                        continue
+                    res = core.align_ring(ring.copy(), ref.lw, cfg.tol, cfg.eps,
+                                          hole=kind == "poly" and ri > 0)
+                    if res.ring is None or not res.paths:
+                        continue
+                    count += len(res.paths)
+                    h = max(h, core.hausdorff(ring.to_list(), res.ring.to_list()))
+                if count:
+                    items.append(BatchItem(layer, f.id(), ref, count, h))
+        if progress is not None:
+            progress(len(jobs), len(jobs))
+        return items
+
+    def batch_apply(self, item, cfg):
+        """Align one scanned item, exactly like selected-features mode with
+        that feature selected and that reference clicked: read again from the
+        layer, same checks, one undoable edit command per changed layer.
+        Returns (ok, message)."""
+        layer = item.layer
+        if not layer.isEditable():
+            return False, "'{}' is not in edit mode.".format(layer.name())
+        self._work_crs = layer.crs()
+        state = WorkState()
+        key = (layer.id(), item.fid)
+        e = state.get(layer, item.fid)
+        if e is None:
+            return False, "Feature deleted or with an unsupported geometry."
+        collect = self._new_collect(multi=True)
+        ref_bb = item.ref.lw.bbox(cfg.tol)
+        for pi in range(len(e.parts)):
+            for ri in range(len(e.parts[pi])):
+                if core.bbox_intersects(e.parts[pi][ri].bbox(), ref_bb):
+                    self._run_align(state, key, pi, ri, item.ref, cfg, layer.crs(), None,
+                                    collect)
+        keep = [p for path in collect["paths"] for p in path]
+        ok, info = self._commit(state, "Align edge", collect["primary"], keep, cfg.eps,
+                                bool(cfg.neighbours))
+        if not ok:
+            if info == "Nothing to change." and collect["messages"]:
+                info = " ".join(dict.fromkeys(collect["messages"]))
+            return False, info
+        if collect["readonly"]:
+            info += ("; coincident features NOT changed (not in edit mode): "
+                     + ", ".join(sorted(collect["readonly"])))
+        return True, info
+
+
+class BatchItem:
+    """One feature that the batch alignment would change, with the base
+    layer boundary it is aligned to."""
+    __slots__ = ("layer", "fid", "ref", "count", "h")
+
+    def __init__(self, layer, fid, ref, count, h):
+        self.layer = layer
+        self.fid = fid
+        self.ref = ref          # Reference (a boundary of the base layer)
+        self.count = count      # number of stretches that move
+        self.h = h              # largest movement

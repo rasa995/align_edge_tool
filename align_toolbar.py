@@ -42,10 +42,16 @@ HINT_EDGE = ("Clicked edge: click the edge you want to MOVE (a feature in a laye
 HINT_SELECTED = ("Selected features: select features in a layer that is in edit mode, then "
                  "click the reference boundary. If two reference boundaries coincide there, "
                  "click slightly inside the reference polygon you mean.")
-HINT_GENERAL = ("Hovering shows a preview: the stretch that will move (solid) and where it "
-                "goes (dashed). Esc clears it. Features of other layers that share the moved "
-                "stretch move with it if their layer is in edit mode. Reference layers are "
-                "never changed. Every alignment is one undoable edit per layer.")
+HINT_GENERAL = ("Hovering shows a preview: the stretch that will move (solid), where it goes "
+                "(dashed) and the area in between (shaded), with a box next to the cursor "
+                "saying what the click will do, or why it would be refused. Where several "
+                "references are near, Tab / Shift+Tab picks another one. Esc clears the "
+                "preview. Features of other layers that share the moved stretch move with it "
+                "if their layer is in edit mode. Reference layers are never changed and may "
+                "use another CRS. Z/M values are kept (new vertices get interpolated values). "
+                "Every alignment is one undoable edit per layer.\n\n"
+                "Align all within tolerance… (in the ▾ menu) aligns many stretches at once "
+                "to a base layer that stays fixed.")
 
 # (action attribute, settings key, label, tooltip); all default to on
 OPTIONS = (
@@ -186,6 +192,13 @@ class AlignEdgeToolbar(QToolBar):
                                "stretch count as sharing it and are moved too.")
         el.addWidget(self.sp_eps)
         _widget_action(self.menu_opt, eps_box)
+
+        # ---- batch alignment (the plugin connects it to the dialog)
+        self.act_batch = QAction("Align all within tolerance…", self)
+        self.act_batch.setToolTip("Scan the layers in edit mode for every stretch within the "
+                                  "tolerance of a base layer, review the list, then align "
+                                  "them all.")
+        self.menu.addAction(self.act_batch)
 
         # ---- help
         self.menu.addSeparator()

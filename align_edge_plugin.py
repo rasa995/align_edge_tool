@@ -10,6 +10,7 @@ try:  # Qt6
 except ImportError:  # Qt5
     from qgis.PyQt.QtWidgets import QAction
 
+from .align_batch import BatchAlignDialog
 from .align_tool import AlignEdgeMapTool
 from .align_toolbar import AlignEdgeToolbar
 
@@ -23,6 +24,7 @@ class AlignEdgePlugin:
         self.action = None
         self.toolbar = None
         self.tool = None
+        self.batch_dialog = None
 
     def initGui(self):
         icon = QIcon(os.path.join(os.path.dirname(__file__), "icon.svg"))
@@ -37,6 +39,17 @@ class AlignEdgePlugin:
 
         self.tool = AlignEdgeMapTool(self.iface, self.toolbar)
         self.tool.setAction(self.action)
+        self.toolbar.act_batch.triggered.connect(self._open_batch)
+
+    def _open_batch(self):
+        if self.batch_dialog is None:
+            self.batch_dialog = BatchAlignDialog(self.iface, self.tool, self.toolbar,
+                                                 self.iface.mainWindow())
+        else:
+            self.batch_dialog.refresh()
+        self.batch_dialog.show()
+        self.batch_dialog.raise_()
+        self.batch_dialog.activateWindow()
 
     def _toggle(self, checked):
         canvas = self.iface.mapCanvas()
@@ -47,6 +60,10 @@ class AlignEdgePlugin:
             canvas.unsetMapTool(self.tool)
 
     def unload(self):
+        if self.batch_dialog is not None:
+            self.batch_dialog.close()
+            self.batch_dialog.deleteLater()
+            self.batch_dialog = None
         canvas = self.iface.mapCanvas()
         if self.tool is not None:
             if canvas.mapTool() is self.tool:

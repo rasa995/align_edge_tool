@@ -89,6 +89,52 @@ def nearest_on_polyline(pts, p):
     return best
 
 
+def carry_zm(orig, new_pts):
+    """Z/M values for the vertices of a changed line or ring.
+
+    orig: [(x, y, z, m), ...] of the original line or ring (a closed ring
+    repeats its first vertex at the end); z or m is NaN where unknown.
+    new_pts: [(x, y), ...] of the new geometry.
+    Returns [(z, m), ...]: a vertex the original already had (same XY) keeps
+    its own values; any other vertex gets the values interpolated at its
+    nearest position on the original. Values are never taken from the
+    reference, and unknown values stay unknown (NaN)."""
+    exact = {}
+    for x, y, z, m in orig:
+        exact.setdefault((x, y), (z, m))
+    xy = [(v[0], v[1]) for v in orig]
+    out = []
+    for p in new_pts:
+        p = (p[0], p[1])
+        if p in exact:
+            out.append(exact[p])
+            continue
+        if len(orig) == 1:
+            out.append((orig[0][2], orig[0][3]))
+            continue
+        best = None
+        for i in range(len(xy) - 1):
+            d, t, _q = seg_dist(p, xy[i], xy[i + 1])
+            if best is None or d < best[0]:
+                best = (d, i, t)
+        _d, i, t = best
+        a, b = orig[i], orig[i + 1]
+        out.append((a[2] + t * (b[2] - a[2]), a[3] + t * (b[3] - a[3])))
+    return out
+
+
+def polygon_area(pts):
+    """Unsigned area of a simple ring (shoelace); pts with or without the
+    closing vertex."""
+    s = 0.0
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        s += x1 * y2 - x2 * y1
+    return abs(s) / 2.0
+
+
 def point_in_ring(pts, p):
     """True if p lies inside the closed ring pts (ray casting; pts without
     the closing duplicate). Points on the boundary may go either way."""

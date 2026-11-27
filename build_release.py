@@ -19,7 +19,7 @@ GH_USER = "rasa995"
 GH_REPO = "align_edge_tool"
 BRANCH = "main"
 EXCLUDE = {".git", ".gitignore", ".gitattributes", "plugins.xml",
-           "build_release.py", "__pycache__", "LICENSE.bak"}
+           "build_release.py", "__pycache__", "LICENSE.bak", "tests"}
 
 here = os.path.dirname(os.path.abspath(__file__))
 cp = configparser.RawConfigParser(strict=False)
